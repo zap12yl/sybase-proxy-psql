@@ -1,0 +1,47 @@
+# version: '3.8' # the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+
+services:
+  proxy:
+    build: ./proxy
+    env_file: .env
+    ports:
+      - "5000:5000"
+    networks:
+      - proxy-net
+    environment:
+      PG_PASSWORD: paku@123
+#    depends_on:
+#      - postgres
+
+  migration:
+    build: ./migration
+    env_file: .env
+    networks:
+      - proxy-net
+    depends_on:
+      - proxy
+
+  web-backend:
+    build: 
+      context: .  # Set context to project root
+      dockerfile: webapp/backend/Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    networks:
+      - proxy-net
+    depends_on:
+      - migration
+
+  web-frontend:
+    build: ./webapp/frontend
+    ports:
+      - "3000:80"
+    networks:
+      - proxy-net
+    depends_on:
+      - web-backend
+
+networks:
+  proxy-net:
+    driver: bridge

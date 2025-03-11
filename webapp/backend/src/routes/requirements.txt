@@ -1,0 +1,19 @@
+fastapi>=0.78.0
+uvicorn>=0.18.2
+python-dotenv>=0.19.2
+python-jose[cryptography]>=3.3.0  # Updated for JWT
+passlib[bcrypt]>=1.7.4            # Updated for password hashing
+psycopg2-binary>=2.9.6
+prometheus-client>=0.17.0         # Added for metrics
+aiohttp>=3.8.5                    # Added for async HTTP client
+python-tds>=1.11.0
+#pytds>=1.12.0 
+python_tds>=1.16.0
+tenacity>=8.2.3
+python-multipart==0.0.12
+docopt>=0.6.2 
+greenlet>=3.1.1 
+migrator>=0.0.8 
+sqlalchemy>=2.0.38
+typing-extensions>=4.12.2
+logger>=1.4
