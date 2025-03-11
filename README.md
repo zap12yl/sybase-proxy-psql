@@ -1,5 +1,6 @@
 # Sybase to PostgreSQL Proxy Modified Version
 Enterprise-grade migration solution with web interface and authentication.
+Credit to [fadjar340](https://github.com/fadjar340)
 
 ## Project Structure
 ```markdown
