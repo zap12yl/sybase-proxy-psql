@@ -1,7 +1,7 @@
 import pytds
-import psycopg2
+import psycopg3
 from tqdm import tqdm
-from psycopg2.extras import execute_batch
+from psycopg3.extras import execute_batch
 import logging
 
 logger = logging.getLogger("data-mover")
@@ -23,7 +23,7 @@ class DataMover:
             raise
 
     def _copy_data(self, syb_cursor, table_name: str, pg_config: dict, total: int):
-        with psycopg2.connect(**pg_config) as pg_conn:
+        with psycopg3.connect(**pg_config) as pg_conn:
             with pg_conn.cursor() as pg_cursor, tqdm(
                 total=total, 
                 desc=f"Migrating {table_name}",
