@@ -8,10 +8,6 @@ services:
       - "5000:5000"
     networks:
       - proxy-net
-    environment:
-      PG_PASSWORD: paku@123
-#    depends_on:
-#      - postgres
 
   migration:
     build: ./migration
