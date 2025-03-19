@@ -7,8 +7,8 @@ from schema_translator import SchemaTranslator
 from data_mover import DataMover
 from sp_converter import SPConverter
 import logging
-import psycopg2
-from psycopg2 import OperationalError
+import psycopg3
+from psycopg3 import OperationalError
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class DatabaseMigrator:
     def _check_database_available(self):
         """Check if PostgreSQL database is reachable"""
         try:
-            conn = psycopg2.connect(**self.pg_config)
+            conn = psycopg3.connect(**self.pg_config)
             conn.close()
         except OperationalError as e:
             logger.error(f"Database connection failed: {str(e)}")
@@ -69,7 +69,7 @@ class DatabaseMigrator:
         """Execute PostgreSQL query with connection check"""
         try:
             self._check_database_available()
-            with psycopg2.connect(**self.pg_config) as conn:
+            with psycopg3.connect(**self.pg_config) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(query)
                 conn.commit()
@@ -119,7 +119,7 @@ class DatabaseMigrator:
                 self.progress.sprocs_converted += 1
 
     def _execute_pg(self, query: str):
-        with psycopg2.connect(**self.pg_config) as conn:
+        with psycopg3.connect(**self.pg_config) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query)
             conn.commit()
