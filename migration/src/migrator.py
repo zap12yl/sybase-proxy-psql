@@ -8,7 +8,7 @@ from data_mover import DataMover
 from sp_converter import SPConverter
 import logging
 import psycopg3
-from psycopg3 import OperationalError
+from psycopg3 import OperationalError, errors  # Adjusted for psycopg3 error types
 from tenacity import retry, stop_after_attempt, wait_fixed, RetryError
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class DatabaseMigrator:
         try:
             conn = psycopg3.connect(**self.pg_config)
             conn.close()
-        except OperationalError as e:
+        except errors.OperationalError as e:  # Adjusted for psycopg3
             logger.error(f"Database connection failed: {str(e)}")
             raise DatabaseNotAvailableError("Target database unavailable") from e
 
@@ -71,11 +71,14 @@ class DatabaseMigrator:
             self._check_database_available()
             with psycopg3.connect(**self.pg_config) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(query, params)
+                    cursor.execute(query, params)  # Proper parameterized query
                 conn.commit()
-        except OperationalError as e:
+        except errors.OperationalError as e:  # Adjusted for psycopg3
             logger.error(f"Database operation failed: {str(e)}")
             raise DatabaseConnectionError(f"Database error: {str(e)}") from e
+        except errors.QueryError as e:  # Added for catching query-specific errors
+            logger.error(f"Query execution failed: {str(e)}")
+            raise DatabaseConnectionError(f"Query error: {str(e)}") from e
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _migrate_schema(self):
@@ -123,6 +126,9 @@ class DatabaseMigrator:
             # Rest of migration logic
         except DatabaseNotAvailableError as e:
             logger.critical("Migration aborted: Target database unavailable")
+            raise
+        except RetryError as e:  # Added handling for retries
+            logger.error(f"Migration failed after retrying: {str(e)}")
             raise
         except Exception as e:
             logger.error(f"Migration failed: {str(e)}")
