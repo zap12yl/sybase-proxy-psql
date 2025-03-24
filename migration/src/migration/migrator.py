@@ -9,7 +9,7 @@ from sp_converter import SPConverter
 import logging
 import psycopg3
 from psycopg3 import OperationalError
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed, RetryError
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ class DatabaseMigrator:
         try:
             logger.info("Migration process started.")
             self._check_database_available()
-            # Rest of migration logic
+            # Migrate schema, data, and stored procedures with retries
             self._migrate_schema()
             self._migrate_data()
             self._migrate_stored_procs()
@@ -101,15 +101,19 @@ class DatabaseMigrator:
         except DatabaseNotAvailableError as e:
             logger.critical("Migration aborted: Target database unavailable")
             raise
+        except RetryError as e:
+            logger.error(f"Migration failed after retrying: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"Migration failed: {str(e)}")
             raise
         return self.progress.as_dict()
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _migrate_schema(self):
         """Migrate schema from Sybase to PostgreSQL"""
         with pytds.connect(**self.sybase_config) as conn:
-            logger.debug(f"Fetching table names from Sybase...")
+            logger.debug("Fetching table names from Sybase...")
             tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
             for (table,) in tables:
                 logger.debug(f"Migrating schema for table {table}...")
@@ -119,10 +123,11 @@ class DatabaseMigrator:
                 self.progress.tables_migrated += 1
                 logger.info(f"Schema for table {table} migrated successfully.")
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _migrate_data(self):
         """Migrate data from Sybase to PostgreSQL"""
         with pytds.connect(**self.sybase_config) as conn:
-            logger.debug(f"Fetching table names from Sybase for data migration...")
+            logger.debug("Fetching table names from Sybase for data migration...")
             tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
             for (table,) in tables:
                 logger.debug(f"Migrating data for table {table}...")
@@ -131,10 +136,11 @@ class DatabaseMigrator:
                 self.progress.rows_migrated += row_count
                 logger.info(f"Data for table {table} migrated successfully with {row_count} rows.")
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def _migrate_stored_procs(self):
         """Migrate stored procedures from Sybase to PostgreSQL"""
         with pytds.connect(**self.sybase_config) as conn:
-            logger.debug(f"Fetching stored procedures from Sybase...")
+            logger.debug("Fetching stored procedures from Sybase...")
             procs = conn.execute_sql("SELECT name FROM sysobjects WHERE type='P'")
             for (proc,) in procs:
                 logger.debug(f"Converting stored procedure {proc}...")
@@ -144,10 +150,3 @@ class DatabaseMigrator:
                 self.progress.sprocs_converted += 1
                 logger.info(f"Stored procedure {proc} converted successfully.")
 
-    def _execute_pg(self, query: str):
-        """Execute PostgreSQL query"""
-        with psycopg3.connect(**self.pg_config) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query)
-            conn.commit()
-            logger.debug(f"Executed PostgreSQL query: {query}")
