@@ -1,10 +1,10 @@
-psycopg-binary>=2.9.10
+psycopg-binary>=3.2.6
 python-tds>=1.16.0
 sqlglot>=26.11.1
 python-dotenv>=1.0.1
 tqdm>=4.67.1               # Added for progress bars
 prometheus-client>=0.21.1  # Added for metrics
-python_tds>=1.16.0
+python-tds>=1.16.0
 tenacity>=9.0.0
 setuptools>=76.1.0
 docopt>=0.6.2 
