@@ -1,8 +1,6 @@
 sqlglot>=26.7.0
-psycopg2-binary>=2.9.6
+psycopg-binary>=2.9.6
 python-dotenv>=0.19.2
-#python-tds>=1.11.0
-#pytds>=1.12.0 
 prometheus-client>=0.17.0  # Added for metrics
 python-jose>=3.3.0         # Added for JWT
 passlib[bcrypt]>=1.7.4     # Added for password hashing
