@@ -8,10 +8,17 @@ from data_mover import DataMover
 from sp_converter import SPConverter
 import logging
 import psycopg3
-from psycopg3 import OperationalError, errors  # Adjusted for psycopg3 error types
+from psycopg3 import OperationalError
 from tenacity import retry, stop_after_attempt, wait_fixed, RetryError
 
+# Set up logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Set to DEBUG for detailed logs
+
+# Set up the logging format
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
 
 class DatabaseConnectionError(Exception):
     """Custom exception for database connection issues"""
@@ -59,81 +66,87 @@ class DatabaseMigrator:
     def _check_database_available(self):
         """Check if PostgreSQL database is reachable"""
         try:
+            logger.debug(f"Attempting to connect to PostgreSQL with config: {self.pg_config}")
             conn = psycopg3.connect(**self.pg_config)
             conn.close()
-        except errors.OperationalError as e:  # Adjusted for psycopg3
+            logger.info("Successfully connected to PostgreSQL.")
+        except OperationalError as e:
             logger.error(f"Database connection failed: {str(e)}")
             raise DatabaseNotAvailableError("Target database unavailable") from e
 
-    def _execute_pg(self, query: str, params: tuple = ()):
-        """Execute PostgreSQL query with parameterization"""
+    def _execute_pg(self, query: str):
+        """Execute PostgreSQL query with connection check"""
         try:
             self._check_database_available()
+            logger.debug(f"Executing PostgreSQL query: {query}")
             with psycopg3.connect(**self.pg_config) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(query, params)  # Proper parameterized query
+                    cursor.execute(query)
                 conn.commit()
-        except errors.OperationalError as e:  # Adjusted for psycopg3
+            logger.info("PostgreSQL query executed successfully.")
+        except OperationalError as e:
             logger.error(f"Database operation failed: {str(e)}")
             raise DatabaseConnectionError(f"Database error: {str(e)}") from e
-        except errors.QueryError as e:  # Added for catching query-specific errors
-            logger.error(f"Query execution failed: {str(e)}")
-            raise DatabaseConnectionError(f"Query error: {str(e)}") from e
-
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def _migrate_schema(self):
-        """Migrate schema from Sybase to PostgreSQL"""
-        with pytds.connect(**self.sybase_config) as conn:
-            tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
-            for (table,) in tables:
-                logger.info(f"Starting migration for table schema: {table}")
-                # Safely parameterize the table name
-                schema = conn.execute_sql("sp_help ?", (table,))
-                pg_ddl = self.translator.convert_schema(table, schema)
-                self._execute_pg(pg_ddl)
-                self.progress.tables_migrated += 1
-                logger.info(f"Successfully migrated schema for table: {table} (Total migrated: {self.progress.tables_migrated})")
-
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def _migrate_data(self):
-        """Migrate data from Sybase to PostgreSQL"""
-        with pytds.connect(**self.sybase_config) as conn:
-            tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
-            for (table,) in tables:
-                logger.info(f"Starting data migration for table: {table}")
-                self.data_mover.migrate_table(table, self.sybase_config, self.pg_config)
-                # Parameterizing the row count query to avoid SQL injection
-                row_count = conn.execute_sql("SELECT COUNT(*) FROM ?", (table,)).fetchone()[0]
-                self.progress.rows_migrated += row_count
-                logger.info(f"Successfully migrated {row_count} rows for table: {table} (Total rows migrated: {self.progress.rows_migrated})")
-
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def _migrate_stored_procs(self):
-        """Migrate stored procedures from Sybase to PostgreSQL"""
-        with pytds.connect(**self.sybase_config) as conn:
-            procs = conn.execute_sql("SELECT name FROM sysobjects WHERE type='P'")
-            for (proc,) in procs:
-                logger.info(f"Starting stored procedure migration for: {proc}")
-                definition = conn.execute_sql("EXEC sp_helptext ?", (proc,))
-                pg_func = self.sp_converter.convert(proc, definition)
-                self._execute_pg(pg_func)
-                self.progress.sprocs_converted += 1
-                logger.info(f"Successfully migrated stored procedure: {proc} (Total procedures converted: {self.progress.sprocs_converted})")
 
     def full_migration(self):
+        """Full migration logic"""
         try:
+            logger.info("Migration process started.")
             self._check_database_available()
-            # Rest of migration logic
+            # Migrate schema, data, and stored procedures with retries
+            self._migrate_schema()
+            self._migrate_data()
+            self._migrate_stored_procs()
+            logger.info(f"Migration completed successfully.")
         except DatabaseNotAvailableError as e:
             logger.critical("Migration aborted: Target database unavailable")
             raise
-        except RetryError as e:  # Added handling for retries
+        except RetryError as e:
             logger.error(f"Migration failed after retrying: {str(e)}")
             raise
         except Exception as e:
             logger.error(f"Migration failed: {str(e)}")
             raise
-        self._migrate_schema()
-        self._migrate_data()
-        self._migrate_stored_procs()
         return self.progress.as_dict()
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def _migrate_schema(self):
+        """Migrate schema from Sybase to PostgreSQL"""
+        with pytds.connect(**self.sybase_config) as conn:
+            logger.debug("Fetching table names from Sybase...")
+            tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
+            for (table,) in tables:
+                logger.debug(f"Migrating schema for table {table}...")
+                schema = conn.execute_sql(f"sp_help {table}")
+                pg_ddl = self.translator.convert_schema(table, schema)
+                self._execute_pg(pg_ddl)
+                self.progress.tables_migrated += 1
+                logger.info(f"Schema for table {table} migrated successfully.")
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def _migrate_data(self):
+        """Migrate data from Sybase to PostgreSQL"""
+        with pytds.connect(**self.sybase_config) as conn:
+            logger.debug("Fetching table names from Sybase for data migration...")
+            tables = conn.execute_sql("SELECT name FROM sysobjects WHERE type='U'")
+            for (table,) in tables:
+                logger.debug(f"Migrating data for table {table}...")
+                self.data_mover.migrate_table(table, self.sybase_config, self.pg_config)
+                row_count = conn.execute_sql(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                self.progress.rows_migrated += row_count
+                logger.info(f"Data for table {table} migrated successfully with {row_count} rows.")
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def _migrate_stored_procs(self):
+        """Migrate stored procedures from Sybase to PostgreSQL"""
+        with pytds.connect(**self.sybase_config) as conn:
+            logger.debug("Fetching stored procedures from Sybase...")
+            procs = conn.execute_sql("SELECT name FROM sysobjects WHERE type='P'")
+            for (proc,) in procs:
+                logger.debug(f"Converting stored procedure {proc}...")
+                definition = conn.execute_sql(f"EXEC sp_helptext '{proc}'")
+                pg_func = self.sp_converter.convert(proc, definition)
+                self._execute_pg(pg_func)
+                self.progress.sprocs_converted += 1
+                logger.info(f"Stored procedure {proc} converted successfully.")
+
